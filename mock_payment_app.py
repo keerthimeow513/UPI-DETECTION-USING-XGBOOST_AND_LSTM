@@ -20,10 +20,31 @@ def main():
 
     while True:
         print("\nMake a Payment:")
-        receiver = input("Enter Receiver UPI (or 'q' to quit): ")
-        if receiver.lower() == 'q':
+        print("1. Normal Payment (You)")
+        print("2. Simulate Hacker Attack (Stolen Credentials)")
+        print("q. Quit")
+        choice = input("Select Option: ")
+
+        if choice.lower() == 'q':
             break
-            
+        
+        # Determine Flow
+        device_id = "82:4e:8e:2a:9e:28" # Registered User Device
+        lat = -35.45 # Home Location
+        long = -96.58
+        is_attack = False
+
+        if choice == '2':
+            is_attack = True
+            print("\n⚠️  SIMULATING ATTACK: Unrecognized Device & Unusual Location...")
+            device_id = "11:22:33:44:55:66" # Unknown Device
+            lat = 12.97 # Far away location
+            long = 77.59
+        elif choice != '1':
+            print("Invalid option.")
+            continue
+
+        receiver = input("Enter Receiver UPI: ")
         try:
             amount = float(input("Enter Amount (₹): "))
         except ValueError:
@@ -33,16 +54,15 @@ def main():
         print("\n🔄 Processing Payment...")
         time.sleep(1) # Simulate network delay
         
-        # 1. Construct the Payload (Simulating what GPay sends to the server)
-        # We auto-fill location/time for the demo
+        # 1. Construct the Payload
         payload = {
             "SenderUPI": user_upi,
             "ReceiverUPI": receiver,
             "Amount": amount,
-            "DeviceID": "82:4e:8e:2a:9e:28", # Known device
-            "Latitude": -35.45,  # User's home location
-            "Longitude": -96.58,
-            "Timestamp": None # API will handle time
+            "DeviceID": device_id,
+            "Latitude": lat,
+            "Longitude": long,
+            "Timestamp": None
         }
         
         # 2. Call the AI API (The Integration)
@@ -73,6 +93,8 @@ def main():
                     print(f"Risk Score: {result['risk_score']:.4f}")
                     
                 else:
+                    if is_attack:
+                        print("\n[NOTE]: System allowed this. Model might need retraining or attack pattern too subtle.")
                     print("\n✅ PAYMENT SUCCESSFUL")
                     print(f"Paid ₹{amount} to {receiver}")
                     print(f"Risk Score: {result['risk_score']:.4f} (Safe)")
