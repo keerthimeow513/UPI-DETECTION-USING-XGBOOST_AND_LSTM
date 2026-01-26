@@ -4,6 +4,9 @@ import os
 # Add project root
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Disable GPU completely for TensorFlow
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import tensorflow as tf
 import xgboost as xgb
 import joblib
