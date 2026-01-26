@@ -1,15 +1,25 @@
+import sys
+import os
+
+# Add project root to path (must be BEFORE imports that rely on it)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import uuid
-import sys
-import os
 
-# Add project root
-sys.path.append(os.getcwd())
-
-from inference.schemas import TransactionRequest, PredictionResponse
-from inference.service import FraudDetectionService
+# Correct imports: Since we are inside the package, or running as script
+# We'll use relative imports if run as module, or absolute if path added.
+# Given sys.path adjustment, we can import from the module name if '04_inference' is a package,
+# OR we can import relatively if we run correctly.
+# Simplest fix for "python api.py" or "uvicorn api:app" inside the folder:
+try:
+    from schemas import TransactionRequest, PredictionResponse
+    from service import FraudDetectionService
+except ImportError:
+    from 04_inference.schemas import TransactionRequest, PredictionResponse
+    from 04_inference.service import FraudDetectionService
 
 app = FastAPI(
     title="UPI Fraud Detection API",
@@ -30,7 +40,7 @@ service = None
 @app.on_event("startup")
 def load_artifacts():
     global service
-    service = FraudDetectionService()
+    service = FraudDetectionService('07_configs/config.yaml')
 
 @app.get("/")
 def health_check():
