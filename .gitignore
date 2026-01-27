@@ -5,3 +5,4 @@ __pycache__/
 venv/
 .env
 pdf_content.txt
+project.log
