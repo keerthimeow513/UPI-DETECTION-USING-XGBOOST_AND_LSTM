@@ -42,3 +42,19 @@
 2026-01-27 18:48:44,016 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device new_device_id
 2026-01-27 18:48:44,059 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: High Amount at Unusual Hour
 2026-01-27 18:48:44,101 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device hacker_device
+2026-01-27 18:53:50,924 - UPI_Fraud_Detection - INFO - Loading models for inference...
+2026-01-27 18:53:56,526 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:00:00:00:00:00
+2026-01-27 18:54:02,909 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:00:00:00:00:00
+2026-01-27 18:54:07,568 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:00:00:00:00:00
+2026-01-27 18:54:16,743 - UPI_Fraud_Detection - INFO - Loading models for inference...
+2026-01-27 18:54:29,245 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:00:00:00:00:00
+2026-01-27 18:57:02,246 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:20:00:00:00:00
+2026-01-27 18:57:21,140 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:20:00:00:00:00
+2026-01-27 18:57:39,980 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:20:00:00:00:00
+2026-01-27 18:57:41,478 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:20:00:00:00:00
+2026-01-27 18:57:44,106 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:20:00:00:00:00
+2026-01-27 18:57:54,605 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 00:00:00:00:00:00
+2026-01-27 19:03:13,899 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 72:4e:8e:2a:9e:28
+2026-01-27 19:03:17,547 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 72:4e:8e:2a:9e:28
+2026-01-27 19:03:20,490 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: Unknown Device 72:4e:8e:2a:9e:28
+2026-01-27 19:04:04,842 - UPI_Fraud_Detection - WARNING - Domain Rule Triggered: High Amount at Unusual Hour
