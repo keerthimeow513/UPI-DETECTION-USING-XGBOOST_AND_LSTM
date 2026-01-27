@@ -1,125 +1,128 @@
-import sys
-import os
+import sys # Import system library for path manipulation
+import os # Import OS library for managing environment variables and paths
 
-# Add project root to path
+# Add project root to path so the dashboard can import from the 'utils' folder
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Disable GPU for inference to avoid conflicts
+# Disable GPU for inference to avoid conflicts and ensure it runs on standard CPU servers
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import xgboost as xgb
-import tensorflow as tf
-import shap
-import joblib
-import matplotlib.pyplot as plt
-import seaborn as sns
-import yaml
-from utils.preprocessing import Preprocessor
+import streamlit as st # Import Streamlit for building the web interface
+import pandas as pd # Import pandas for data manipulation and displaying tables
+import numpy as np # Import numpy for array and matrix operations
+import xgboost as xgb # Import XGBoost to load the tree-based model
+import tensorflow as tf # Import TensorFlow to load the deep learning LSTM model
+import shap # Import SHAP for generating explainability charts
+import joblib # Import joblib for loading serialized model files
+import matplotlib.pyplot as plt # Import Matplotlib for basic plotting
+import seaborn as sns # Import Seaborn for statistical data visualization
+import yaml # Import yaml for reading configuration files
+from utils.preprocessing import Preprocessor # Import our custom data transformation utility
 
-# Set Page Config
+# Set Page Configuration for the Streamlit web app
 st.set_page_config(
-    page_title="UPI Fraud Detection System",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="UPI Fraud Detection System", # Title of the browser tab
+    page_icon="[Shield]", # Favicon for the browser tab
+    layout="wide", # Use the full width of the screen
+    initial_sidebar_state="expanded" # Keep the sidebar open by default
 )
 
-# Load Config
-with open('07_configs/config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
+# Load Configuration from the YAML file
+with open('07_configs/config.yaml', 'r') as f: # Open the file in read mode
+    config = yaml.safe_load(f) # Convert YAML content to a Python dictionary
 
-# Load Assets
-@st.cache_resource
-def load_assets():
-    print("Loading models and data...")
-    lstm_model = tf.keras.models.load_model('02_models/artifacts/lstm_model.h5')
-    xgb_model = joblib.load('02_models/artifacts/xgb_model.pkl')
+# Load AI Assets and cache them to prevent reloading on every user click
+@st.cache_resource # Tell Streamlit to keep these objects in memory
+def load_assets(): # Function to load models and the preprocessor
+    print("Loading models and data...") # Debug message in terminal
+    lstm_model = tf.keras.models.load_model('02_models/artifacts/lstm_model.h5') # Load the LSTM model
+    xgb_model = joblib.load('02_models/artifacts/xgb_model.pkl') # Load the XGBoost model
     
-    preprocessor = Preprocessor('07_configs/config.yaml')
-    preprocessor.load_artifacts()
+    preprocessor = Preprocessor('07_configs/config.yaml') # Initialize the preprocessor
+    preprocessor.load_artifacts() # Load the fitted scalers and encoders
     
-    return lstm_model, xgb_model, preprocessor
+    return lstm_model, xgb_model, preprocessor # Return the loaded objects
 
-try:
+try: # Attempt to load the assets and handle errors if files are missing
     lstm_model, xgb_model, preprocessor = load_assets()
-except Exception as e:
-    st.error(f"Error loading assets: {e}")
-    st.stop()
+except Exception as e: # Catch any loading errors
+    st.error(f"Error loading assets: {e}") # Show a red error box in the UI
+    st.stop() # Stop the execution of the app
 
-# Sidebar
-st.sidebar.title("🛡️ UPI Shield")
-st.sidebar.markdown("Hybrid Explainable AI-Based Real-Time UPI Fraud Detection")
+# Sidebar UI Elements
+st.sidebar.title("UPI Shield") # Sidebar title
+st.sidebar.markdown("Hybrid Explainable AI-Based Real-Time UPI Fraud Detection") # Description text
 
+# Navigation menu in the sidebar
 menu = st.sidebar.radio("Navigation", ["Dashboard", "Real-Time Prediction", "Model Performance"])
 
-if menu == "Dashboard":
-    st.title("User Transaction Dashboard")
+if menu == "Dashboard": # Logic for the main data overview page
+    st.title("User Transaction Dashboard") # Page heading
     
-    # Load raw data for display
-    df = pd.read_csv('01_data/raw/upi_transactions.csv')
-    df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+    # Load raw data for display on the dashboard
+    df = pd.read_csv('01_data/raw/upi_transactions.csv') # Read the transaction CSV
+    df['Timestamp'] = pd.to_datetime(df['Timestamp']) # Convert timestamp strings to datetime objects
     
-    # Metrics
-    total_trans = len(df)
-    fraud_trans = df['IsFraud'].sum()
-    total_amt = df['Amount'].sum()
-    fraud_amt = df[df['IsFraud'] == 1]['Amount'].sum()
+    # Calculate Key Performance Indicators (KPIs)
+    total_trans = len(df) # Total count of transactions
+    fraud_trans = df['IsFraud'].sum() # Count of fraudulent transactions
+    total_amt = df['Amount'].sum() # Sum of all transaction values
+    fraud_amt = df[df['IsFraud'] == 1]['Amount'].sum() # Sum of fraudulent transaction values
     
+    # Display metrics in 4 columns
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Transactions", f"{total_trans:,}")
-    col2.metric("Fraud Cases Detected", f"{fraud_trans:,}")
-    col3.metric("Total Volume", f"₹{total_amt:,.2f}")
-    col4.metric("Fraud Volume", f"₹{fraud_amt:,.2f}")
+    col1.metric("Total Transactions", f"{total_trans:,}") # Display total count
+    col2.metric("Fraud Cases Detected", f"{fraud_trans:,}") # Display fraud count
+    col3.metric("Total Volume", f"₹{total_amt:,.2f}") # Display total value formatted as currency
+    col4.metric("Fraud Volume", f"₹{fraud_amt:,.2f}") # Display fraud value formatted as currency
     
-    # Recent Transactions
+    # Show the 10 most recent transactions
     st.subheader("Recent Transactions")
-    st.dataframe(df.sort_values(by='Timestamp', ascending=False).head(10))
+    st.dataframe(df.sort_values(by='Timestamp', ascending=False).head(10)) # Display interactive table
     
-    # Visuals
+    # Data Visualization section
     st.subheader("Transaction Analysis")
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns(2) # Create two columns for charts
     
-    with c1:
-        st.write("Fraud vs Normal Transactions")
-        fig, ax = plt.subplots()
-        sns.countplot(x='IsFraud', data=df, ax=ax, palette=['#4CAF50', '#F44336'])
-        ax.set_xticklabels(['Normal', 'Fraud'])
-        st.pyplot(fig)
+    with c1: # First chart: Fraud count comparison
+        st.write("Fraud vs Normal Transactions") # Chart title
+        fig, ax = plt.subplots() # Create a figure
+        sns.countplot(x='IsFraud', data=df, ax=ax, palette=['#4CAF50', '#F44336']) # Plot bar chart
+        ax.set_xticklabels(['Normal', 'Fraud']) # Label the bars
+        st.pyplot(fig) # Render the plot in Streamlit
         
-    with c2:
-        st.write("Transaction Amount Distribution (Log Scale)")
-        fig, ax = plt.subplots()
-        sns.histplot(df['Amount'], bins=50, log_scale=True, ax=ax)
-        st.pyplot(fig)
+    with c2: # Second chart: Distribution of transaction amounts
+        st.write("Transaction Amount Distribution (Log Scale)") # Chart title
+        fig, ax = plt.subplots() # Create a figure
+        sns.histplot(df['Amount'], bins=50, log_scale=True, ax=ax) # Plot histogram on log scale
+        st.pyplot(fig) # Render the plot in Streamlit
 
-elif menu == "Real-Time Prediction":
-    st.title("Real-Time Fraud Detection")
-    st.markdown("Enter transaction details to assess fraud risk.")
+elif menu == "Real-Time Prediction": # Logic for the interactive testing page
+    st.title("Real-Time Fraud Detection") # Page heading
+    st.markdown("Enter transaction details to assess fraud risk.") # Instructional text
     
-    with st.form("prediction_form"):
-        col1, col2 = st.columns(2)
+    # Form for user input
+    with st.form("prediction_form"): # Wrap inputs in a form to prevent refresh on every keypress
+        col1, col2 = st.columns(2) # Two columns for input fields
         
-        with col1:
-            sender_upi = st.text_input("Sender UPI ID", "example@upi")
-            receiver_upi = st.text_input("Receiver UPI ID", "merchant@upi")
-            amount = st.number_input("Amount (₹)", min_value=0.0, value=1000.0)
-            device_id = st.text_input("Device ID (MAC)", "00:00:00:00:00:00")
+        with col1: # Left column inputs
+            sender_upi = st.text_input("Sender UPI ID", "example@upi") # User's UPI
+            receiver_upi = st.text_input("Receiver UPI ID", "merchant@upi") # Receiver's UPI
+            amount = st.number_input("Amount (₹)", min_value=0.0, value=1000.0) # Transaction amount
+            device_id = st.text_input("Device ID (MAC)", "00:00:00:00:00:00") # Device hardware ID
             
-        with col2:
-            hour = st.slider("Hour of Day", 0, 23, 12)
-            day_of_week = st.slider("Day of Week (0=Mon, 6=Sun)", 0, 6, 0)
-            lat = st.number_input("Latitude", value=28.6139)
-            long = st.number_input("Longitude", value=77.2090)
+        with col2: # Right column inputs
+            hour = st.slider("Hour of Day", 0, 23, 12) # Time of transaction
+            day_of_week = st.slider("Day of Week (0=Mon, 6=Sun)", 0, 6, 0) # Day of the week
+            lat = st.number_input("Latitude", value=28.6139) # GPS Latitude
+            long = st.number_input("Longitude", value=77.2090) # GPS Longitude
             
-        # Simplified inputs for demo
+        # Submit button to trigger the analysis
         submitted = st.form_submit_button("Analyze Transaction")
         
-    if submitted:
-        try:
-            # Construct Input Dict
+    if submitted: # If the button was clicked
+        try: # Run the prediction pipeline
+            # Construct input dictionary to match the preprocessor's expected format
             data = {
                 "SenderUPI": sender_upi,
                 "ReceiverUPI": receiver_upi,
@@ -129,56 +132,58 @@ elif menu == "Real-Time Prediction":
                 "Longitude": long,
                 "Hour": hour,
                 "DayOfWeek": day_of_week,
-                "DayOfMonth": 1, # Mock
-                "TimeDiff": 0, # Mock
-                "AmountDiff": 0 # Mock
+                "DayOfMonth": 1, # Mock constant for demo
+                "TimeDiff": 0, # Mock constant for demo
+                "AmountDiff": 0 # Mock constant for demo
             }
             
-            # Preprocess
+            # Preprocess the input data using the shared utility
             feature_vector = preprocessor.transform_single(data)
             
-            # Reshape
+            # Reshape vectors for model compatibility (XGBoost needs 2D, LSTM needs 3D)
             xgb_input = feature_vector.reshape(1, -1)
-            lstm_input = np.tile(feature_vector, (1, 10, 1))
+            lstm_input = np.tile(feature_vector, (1, 10, 1)) # Duplicate current vector to simulate history
             
-            # Predict
-            lstm_prob = lstm_model.predict(lstm_input)[0][0]
-            xgb_prob = xgb_model.predict_proba(xgb_input)[0][1]
-            hybrid_score = 0.5 * lstm_prob + 0.5 * xgb_prob
+            # Perform Inference (Get risk probabilities)
+            lstm_prob = lstm_model.predict(lstm_input, verbose=0)[0][0] # LSTM score
+            xgb_prob = xgb_model.predict_proba(xgb_input)[0][1] # XGBoost score
+            hybrid_score = 0.5 * lstm_prob + 0.5 * xgb_prob # Average the scores
             
-            # Display Result
-            st.divider()
-            c1, c2, c3 = st.columns(3)
-            c1.metric("LSTM Risk Score", f"{lstm_prob:.4f}")
-            c2.metric("XGBoost Risk Score", f"{xgb_prob:.4f}")
-            c3.metric("Hybrid Risk Score", f"{hybrid_score:.4f}")
+            # Display Results in the UI
+            st.divider() # Horizontal line separator
+            c1, c2, c3 = st.columns(3) # Three columns for individual scores
+            c1.metric("LSTM Risk Score", f"{lstm_prob:.4f}") # Show raw LSTM score
+            c2.metric("XGBoost Risk Score", f"{xgb_prob:.4f}") # Show raw XGBoost score
+            c3.metric("Hybrid Risk Score", f"{hybrid_score:.4f}") # Show combined score
             
-            if hybrid_score > 0.5:
-                st.error("🚨 HIGH RISK: Potential Fraud Detected!")
+            # Display a success/error box based on the risk level
+            if hybrid_score > 0.5: # Threshold for fraud detection
+                st.error("HIGH RISK: Potential Fraud Detected!") # Red alert
             else:
-                st.success("✅ LOW RISK: Transaction appears Safe.")
+                st.success("LOW RISK: Transaction appears Safe.") # Green success
                 
-            # Explainability
-            st.subheader("Explainability (XAI)")
-            explainer = shap.TreeExplainer(xgb_model)
-            shap_values = explainer.shap_values(xgb_input)
+            # Explainability Section (XAI)
+            st.subheader("Explainability (XAI)") # Section title
+            explainer = shap.TreeExplainer(xgb_model) # Initialize SHAP for the XGBoost model
+            shap_values = explainer.shap_values(xgb_input) # Calculate contribution of each feature
             
-            fig_shap = plt.figure(figsize=(10, 6))
+            fig_shap = plt.figure(figsize=(10, 6)) # Create a matplotlib figure
+            # Generate a bar plot showing which features increased or decreased risk the most
             shap.summary_plot(shap_values, xgb_input, feature_names=preprocessor.feature_names, plot_type="bar", show=False)
-            st.pyplot(fig_shap)
+            st.pyplot(fig_shap) # Render the SHAP plot in Streamlit
 
-        except Exception as e:
+        except Exception as e: # Handle any errors during prediction
             st.error(f"Error during prediction: {e}")
 
-elif menu == "Model Performance":
-    st.title("Model Performance Metrics")
+elif menu == "Model Performance": # Logic for the metrics page
+    st.title("Model Performance Metrics") # Page heading
     
-    try:
-        import json
-        with open('02_models/artifacts/metrics.json', 'r') as f:
-            metrics = json.load(f)
+    try: # Load and display the metrics saved during the training phase
+        import json # Import json to read the metrics file
+        with open('02_models/artifacts/metrics.json', 'r') as f: # Open the file
+            metrics = json.load(f) # Load JSON content
             
-        st.json(metrics)
+        st.json(metrics) # Display the metrics as a formatted JSON object in the UI
         
-    except:
-        st.warning("Metrics file not found. Run training script first.")
+    except: # Handle case where training hasn't been run yet
+        st.warning("Metrics file not found. Run training script first.") # Warning message
