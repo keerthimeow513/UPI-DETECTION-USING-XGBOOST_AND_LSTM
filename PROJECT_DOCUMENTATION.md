@@ -24,10 +24,24 @@ This project implements a **Hybrid Explainable AI (XAI)** system designed to det
 | `utils/` | `preprocessing.py` | Logic for converting raw transaction data into numerical formats suitable for AI. |
 | `utils/` | `logger.py` | Standardized logging to track system performance and fraud alerts. |
 | `/` | `mock_payment_app.py` | A simulation tool that acts like a mobile app to test the system under normal and attack scenarios. |
+| `/` | `verify_scenarios.py` | A verification script to test the 4 key business scenarios (Safe, New Device, Late Night, Hacker). |
 
 ---
 
-## 3. How the System Works (The Lifecycle)
+## 3. Business Logic: Safe vs. Hacker Scenarios
+
+The system uses a **Graduated Response** strategy to ensure that genuine users are not blocked while hackers are stopped.
+
+| Scenario | Input Pattern | Result | Business Rationale |
+| :--- | :--- | :--- | :--- |
+| **The Regular User** | Registered Device, ₹1,200, 2 PM | **ALLOW** | Standard behavior on a known device is trusted. |
+| **The New Phone User**| **New Device**, ₹1,200, 2 PM | **FLAG (OTP)** | A new device is a minor risk; we challenge with an OTP. |
+| **Late Night Shopper** | Registered Device, **₹15,000**, **3 AM** | **FLAG (OTP)** | Unusual hours and high amounts trigger safety checks. |
+| **The Hacker** | **New Device**, **₹45,000**, **3 AM** | **BLOCK** | Multiple risk factors combined indicate high fraud risk. |
+
+---
+
+## 4. How the System Works (The Lifecycle)
 
 ### Step 1: Data Engineering
 Raw transactions (Amount, Timestamp, GPS) are transformed into:
@@ -42,37 +56,25 @@ Raw transactions (Amount, Timestamp, GPS) are transformed into:
 1.  A transaction comes in via the **API**.
 2.  The **Service** fetches (or mocks) the user's history to create a 10-step sequence for the LSTM.
 3.  **XGBoost** predicts a score. **LSTM** predicts a score.
-4.  **Hybrid Logic:** The scores are averaged. If a **Domain Rule** is triggered (e.g., Unknown Device ID), the score is manually boosted to 0.95 for safety.
-5.  **SHAP** analyzes the XGBoost model to explain the verdict.
+4.  **Hybrid Logic:** The scores are averaged.
+5.  **Domain Rules:** Additional logic checks for unknown devices and unusual patterns to refine the verdict.
+6.  **SHAP** analyzes the XGBoost model to explain the verdict.
 
 ---
 
-## 4. How to Upgrade (The Roadmap)
+## 5. How to Upgrade (The Roadmap)
 
 ### Level 1: Real-Time History (Database Integration)
 Currently, history is "mocked" in `service.py`. 
 *   **Upgrade:** Connect to a Redis or SQL database.
-*   **Code Example:**
-    ```python
-    # In service.py
-    def get_user_history(user_id):
-        return db.query("SELECT * FROM transactions WHERE sender = ? LIMIT 10", user_id)
-    ```
 
 ### Level 2: Geofencing & Velocity Rules
 Detect "Impossible Travel".
 *   **Upgrade:** Calculate distance between the current GPS coordinates and the last known transaction GPS coordinates.
-*   **Example:** If the distance is > 500km and the time difference is < 30 mins, automatically `BLOCK`.
 
 ### Level 3: Model Retraining (CI/CD)
 *   **Upgrade:** Automate `train.py` to run weekly on new data and auto-deploy the new model if its F1-Score is higher than the current one.
 
 ### Level 4: Dockerization
 Run the whole system anywhere with one command.
-*   **Upgrade:** Create a `Dockerfile`:
-    ```dockerfile
-    FROM python:3.9
-    COPY . /app
-    RUN pip install -r requirements.txt
-    CMD ["uvicorn", "04_inference.api:app", "--host", "0.0.0.0"]
-    ```
+*   **Upgrade:** Use a `Dockerfile` to containerize the application.

@@ -71,15 +71,32 @@ class FraudDetectionService: # Define the main service class that orchestrates f
 
         # --- DOMAIN RULE ENHANCEMENT (Hybrid Safety Layer) ---
         # AI models sometimes miss "Account Takeover" if the transaction looks normal otherwise.
-        # We apply a "Veto Rule": If the DeviceID is unknown, we spike the risk regardless of the AI score.
+        # We apply a context-aware rule for unknown devices and suspicious patterns.
         
         KNOWN_SAFE_DEVICE = "82:4e:8e:2a:9e:28" # Mock registered device for the test user
         input_device = transaction_data.get("DeviceID", "") # Get the device ID from the input
+        amount = transaction_data.get("Amount", 0) # Get the transaction amount
+        hour = transaction_data.get("Hour", 12) # Get the hour of transaction
         
+        # Rule 1: Unknown Device Check
         if input_device != KNOWN_SAFE_DEVICE: # If the device doesn't match the user's registered hardware...
             logger.warning(f"Domain Rule Triggered: Unknown Device {input_device}") # Log the anomaly
-            final_score = max(final_score, 0.95) # Forced override: Set risk to very high (95%)
-            sorted_factors["Unknown Device"] = 0.50 # Explicitly add this reason to the explanation output
+            
+            # Context-Aware Decision for Unknown Device:
+            # 1. If it is an unknown device AND (high amount OR AI is suspicious), we BLOCK (Score 0.95).
+            if final_score > 0.4 or amount > 10000:
+                final_score = max(final_score, 0.95)
+                sorted_factors["Unknown Device + High Risk"] = 0.50
+            else:
+                # 2. If it is an unknown device but behavior looks normal, we FLAG (Score 0.6) for OTP.
+                final_score = max(final_score, 0.6)
+                sorted_factors["New Device (OTP Required)"] = 0.30
+        
+        # Rule 2: Unusual Hour + High Amount Check (Even for Safe Device)
+        elif amount > 10000 and (hour < 5 or hour > 23):
+            logger.warning(f"Domain Rule Triggered: High Amount at Unusual Hour")
+            final_score = max(final_score, 0.6) # FLAG for OTP
+            sorted_factors["Unusual Hour + High Amount"] = 0.40
             
         # 5. Determine the Verdict based on the final risk score
         verdict = "ALLOW" # Default action: Let the transaction through

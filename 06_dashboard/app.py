@@ -1,8 +1,10 @@
 import sys # Import system library for path manipulation
 import os # Import OS library for managing environment variables and paths
 
-# Add project root to path so the dashboard can import from the 'utils' folder
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add project root and inference folder to path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(project_root)
+sys.path.append(os.path.join(project_root, '04_inference'))
 
 # Disable GPU for inference to avoid conflicts and ensure it runs on standard CPU servers
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -17,7 +19,9 @@ import joblib # Import joblib for loading serialized model files
 import matplotlib.pyplot as plt # Import Matplotlib for basic plotting
 import seaborn as sns # Import Seaborn for statistical data visualization
 import yaml # Import yaml for reading configuration files
+from datetime import datetime # Import datetime for timestamping new entries
 from utils.preprocessing import Preprocessor # Import our custom data transformation utility
+from service import FraudDetectionService # Import the core AI service
 
 # Set Page Configuration for the Streamlit web app
 st.set_page_config(
@@ -27,6 +31,10 @@ st.set_page_config(
     initial_sidebar_state="expanded" # Keep the sidebar open by default
 )
 
+# Initialize Session State for tracking new predictions live
+if 'history' not in st.session_state:
+    st.session_state['history'] = []
+
 # Load Configuration from the YAML file
 with open('07_configs/config.yaml', 'r') as f: # Open the file in read mode
     config = yaml.safe_load(f) # Convert YAML content to a Python dictionary
@@ -34,19 +42,16 @@ with open('07_configs/config.yaml', 'r') as f: # Open the file in read mode
 # Load AI Assets and cache them to prevent reloading on every user click
 @st.cache_resource # Tell Streamlit to keep these objects in memory
 def load_assets(): # Function to load models and the preprocessor
-    print("Loading models and data...") # Debug message in terminal
-    lstm_model = tf.keras.models.load_model('02_models/artifacts/lstm_model.h5') # Load the LSTM model
-    xgb_model = joblib.load('02_models/artifacts/xgb_model.pkl') # Load the XGBoost model
-    
-    preprocessor = Preprocessor('07_configs/config.yaml') # Initialize the preprocessor
-    preprocessor.load_artifacts() # Load the fitted scalers and encoders
-    
-    return lstm_model, xgb_model, preprocessor # Return the loaded objects
+    print("Loading AI service and assets...") # Debug message in terminal
+    # Ensure the path is absolute for the service
+    cfg_path = os.path.join(project_root, '07_configs', 'config.yaml')
+    service = FraudDetectionService(cfg_path) # Initialize the full AI service (includes models and preprocessor)
+    return service
 
 try: # Attempt to load the assets and handle errors if files are missing
-    lstm_model, xgb_model, preprocessor = load_assets()
+    service = load_assets()
 except Exception as e: # Catch any loading errors
-    st.error(f"Error loading assets: {e}") # Show a red error box in the UI
+    st.error(f"Error loading AI Service: {e}") # Show a red error box in the UI
     st.stop() # Stop the execution of the app
 
 # Sidebar UI Elements
@@ -60,8 +65,18 @@ if menu == "Dashboard": # Logic for the main data overview page
     st.title("User Transaction Dashboard") # Page heading
     
     # Load raw data for display on the dashboard
-    df = pd.read_csv('01_data/raw/upi_transactions.csv') # Read the transaction CSV
-    df['Timestamp'] = pd.to_datetime(df['Timestamp']) # Convert timestamp strings to datetime objects
+    df_raw = pd.read_csv('01_data/raw/upi_transactions.csv') # Read the transaction CSV
+    df_raw['Timestamp'] = pd.to_datetime(df_raw['Timestamp']) # Convert timestamp strings to datetime objects
+    
+    # Combine CSV data with session history (Live updates)
+    if st.session_state['history']:
+        df_history = pd.DataFrame(st.session_state['history'])
+        # Map verdict to IsFraud for charts
+        df_history['IsFraud'] = df_history['verdict'].apply(lambda x: 1 if x == "BLOCK" else 0)
+        # Ensure correct column order and names to match CSV as much as possible
+        df = pd.concat([df_raw, df_history], ignore_index=True)
+    else:
+        df = df_raw
     
     # Calculate Key Performance Indicators (KPIs)
     total_trans = len(df) # Total count of transactions
@@ -76,9 +91,10 @@ if menu == "Dashboard": # Logic for the main data overview page
     col3.metric("Total Volume", f"₹{total_amt:,.2f}") # Display total value formatted as currency
     col4.metric("Fraud Volume", f"₹{fraud_amt:,.2f}") # Display fraud value formatted as currency
     
-    # Show the 10 most recent transactions
-    st.subheader("Recent Transactions")
-    st.dataframe(df.sort_values(by='Timestamp', ascending=False).head(10)) # Display interactive table
+    # Show the 10 most recent transactions (Including live ones)
+    st.subheader("Recent Transactions (Live Feed)")
+    display_cols = ['Timestamp', 'SenderUPI', 'ReceiverUPI', 'Amount', 'DeviceID', 'IsFraud']
+    st.dataframe(df.sort_values(by='Timestamp', ascending=False)[display_cols].head(10)) # Display interactive table
     
     # Data Visualization section
     st.subheader("Transaction Analysis")
@@ -99,7 +115,7 @@ if menu == "Dashboard": # Logic for the main data overview page
 
 elif menu == "Real-Time Prediction": # Logic for the interactive testing page
     st.title("Real-Time Fraud Detection") # Page heading
-    st.markdown("Enter transaction details to assess fraud risk.") # Instructional text
+    st.markdown("Enter transaction details to assess fraud risk. Unknown devices will trigger immediate blocking.") # Instructional text
     
     # Form for user input
     with st.form("prediction_form"): # Wrap inputs in a form to prevent refresh on every keypress
@@ -122,7 +138,7 @@ elif menu == "Real-Time Prediction": # Logic for the interactive testing page
         
     if submitted: # If the button was clicked
         try: # Run the prediction pipeline
-            # Construct input dictionary to match the preprocessor's expected format
+            # Construct input dictionary to match the service's expected format
             data = {
                 "SenderUPI": sender_upi,
                 "ReceiverUPI": receiver_upi,
@@ -132,44 +148,47 @@ elif menu == "Real-Time Prediction": # Logic for the interactive testing page
                 "Longitude": long,
                 "Hour": hour,
                 "DayOfWeek": day_of_week,
-                "DayOfMonth": 1, # Mock constant for demo
+                "DayOfMonth": datetime.now().day, # Use current day
                 "TimeDiff": 0, # Mock constant for demo
                 "AmountDiff": 0 # Mock constant for demo
             }
             
-            # Preprocess the input data using the shared utility
-            feature_vector = preprocessor.transform_single(data)
+            # Use the core service for prediction (This includes Domain Rules like MAC check)
+            result = service.predict(data)
             
-            # Reshape vectors for model compatibility (XGBoost needs 2D, LSTM needs 3D)
-            xgb_input = feature_vector.reshape(1, -1)
-            lstm_input = np.tile(feature_vector, (1, 10, 1)) # Duplicate current vector to simulate history
-            
-            # Perform Inference (Get risk probabilities)
-            lstm_prob = lstm_model.predict(lstm_input, verbose=0)[0][0] # LSTM score
-            xgb_prob = xgb_model.predict_proba(xgb_input)[0][1] # XGBoost score
-            hybrid_score = 0.5 * lstm_prob + 0.5 * xgb_prob # Average the scores
+            # Store result in session history for Dashboard update
+            new_entry = data.copy()
+            new_entry['Timestamp'] = datetime.now()
+            new_entry['verdict'] = result['verdict']
+            new_entry['risk_score'] = result['risk_score']
+            st.session_state['history'].append(new_entry)
             
             # Display Results in the UI
             st.divider() # Horizontal line separator
             c1, c2, c3 = st.columns(3) # Three columns for individual scores
-            c1.metric("LSTM Risk Score", f"{lstm_prob:.4f}") # Show raw LSTM score
-            c2.metric("XGBoost Risk Score", f"{xgb_prob:.4f}") # Show raw XGBoost score
-            c3.metric("Hybrid Risk Score", f"{hybrid_score:.4f}") # Show combined score
+            c1.metric("LSTM Risk Score", f"{result['lstm_score']:.4f}") # Show raw LSTM score
+            c2.metric("XGBoost Risk Score", f"{result['xgb_score']:.4f}") # Show raw XGBoost score
+            c3.metric("Final Risk Score", f"{result['risk_score']:.4f}") # Show combined score
             
-            # Display a success/error box based on the risk level
-            if hybrid_score > 0.5: # Threshold for fraud detection
-                st.error("HIGH RISK: Potential Fraud Detected!") # Red alert
+            # Display a success/error box based on the verdict
+            if result['verdict'] == "BLOCK": # Threshold for fraud detection
+                st.error(f"BLOCK: High Fraud Risk Detected! (Verdict: {result['verdict']})") # Red alert
+            elif result['verdict'] == "FLAG":
+                st.warning(f"FLAG: Suspicious Activity Detected. (Verdict: {result['verdict']})") # Yellow warning
             else:
-                st.success("LOW RISK: Transaction appears Safe.") # Green success
+                st.success(f"ALLOW: Transaction appears Safe. (Verdict: {result['verdict']})") # Green success
                 
             # Explainability Section (XAI)
             st.subheader("Explainability (XAI)") # Section title
-            explainer = shap.TreeExplainer(xgb_model) # Initialize SHAP for the XGBoost model
-            shap_values = explainer.shap_values(xgb_input) # Calculate contribution of each feature
+            
+            # Re-calculate SHAP values for display
+            feature_vector = service.preprocessor.transform_single(data)
+            xgb_input = feature_vector.reshape(1, -1)
+            shap_values = service.explainer.shap_values(xgb_input)
             
             fig_shap = plt.figure(figsize=(10, 6)) # Create a matplotlib figure
             # Generate a bar plot showing which features increased or decreased risk the most
-            shap.summary_plot(shap_values, xgb_input, feature_names=preprocessor.feature_names, plot_type="bar", show=False)
+            shap.summary_plot(shap_values, xgb_input, feature_names=service.preprocessor.feature_names, plot_type="bar", show=False)
             st.pyplot(fig_shap) # Render the SHAP plot in Streamlit
 
         except Exception as e: # Handle any errors during prediction
