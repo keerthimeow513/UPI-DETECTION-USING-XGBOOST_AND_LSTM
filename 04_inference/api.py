@@ -1,75 +1,148 @@
-import sys # Import system library for path manipulation
-import os # Import OS library for file and directory operations
+"""
+UPI Fraud Detection API - FastAPI Application
 
-# 1. Add the current directory (04_inference) to sys.path
-# This ensures that when we call 'import schemas', Python looks in this folder first
-current_dir = os.path.dirname(os.path.abspath(__file__)) # Get the absolute path of the directory where this file resides
-sys.path.append(current_dir) # Add it to the Python module search path
+This module provides the REST API interface for the fraud detection system.
+It handles HTTP requests, CORS configuration, and orchestrates the prediction pipeline.
 
-# 2. Add the project root to sys.path
-# This allows the API to reach out and import the 'utils' package from the root directory
-project_root = os.path.abspath(os.path.join(current_dir, '..')) # Calculate the parent directory (project root)
-sys.path.append(project_root) # Add the root directory to the Python module search path
+Example:
+    Run the server:
+        $ uvicorn 04_inference.api:app --reload
+    
+    Or directly:
+        $ python 04_inference/api.py
 
-from fastapi import FastAPI, HTTPException # Import FastAPI for building the web server and HTTPException for error responses
-from fastapi.middleware.cors import CORSMiddleware # Import CORS middleware to allow the API to be called from different domains (like a frontend)
-import uvicorn # Import Uvicorn, a lightning-fast ASGI server to run the FastAPI app
-import uuid # Import UUID to generate unique transaction IDs for every request
+Endpoints:
+    GET  /         - Health check
+    POST /predict  - Fraud detection prediction
+"""
 
-# Import our custom local modules for data validation and core AI logic
-from schemas import TransactionRequest, PredictionResponse # Import Pydantic models for request/response validation
-from service import FraudDetectionService # Import the brain of the system: the detection service
+import sys
+import os
+from contextlib import asynccontextmanager
 
-app = FastAPI( # Initialize the FastAPI application instance
-    title="UPI Fraud Detection API", # Set the title shown in the auto-generated /docs
-    description="Real-time hybrid AI scoring engine for UPI transactions", # Set the description for the API
-    version="1.0.0" # Set the API version
-)
+# Add paths for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+sys.path.append(project_root)
 
-# Configure Cross-Origin Resource Sharing (CORS)
-app.add_middleware( # Add a security layer to manage incoming web requests
-    CORSMiddleware,
-    allow_origins=["*"], # Allow any website to call this API (useful for development)
-    allow_methods=["*"], # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"], # Allow all HTTP headers
-)
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import uuid
 
-# Initialize a global service variable; it will hold our loaded models
+from schemas import TransactionRequest, PredictionResponse
+from service import FraudDetectionService
+
+
+# Global service instance
 service = None
 
-@app.on_event("startup") # Define a hook that runs automatically when the server starts up
-def load_artifacts(): # Function to load AI models into memory once, rather than on every request
-    global service # Access the global service variable
-    # Calculate the absolute path to the config file relative to the project root
-    config_path = os.path.join(project_root, '07_configs', 'config.yaml') 
-    service = FraudDetectionService(config_path) # Instantiate the service, which loads the LSTM and XGBoost models
 
-@app.get("/") # Define a basic "GET" endpoint at the root URL
-def health_check(): # Function to check if the API is alive
-    return {"status": "online", "system": "UPI Fraud Shield"} # Return a simple JSON status
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    
+    This replaces the deprecated @app.on_event("startup") decorator
+    and provides better cross-platform compatibility (especially Windows).
+    
+    Yields:
+        None: After loading models, allowing the app to run.
+    """
+    # Startup: Load models
+    global service
+    config_path = os.path.join(project_root, '07_configs', 'config.yaml')
+    service = FraudDetectionService(config_path)
+    yield
+    # Shutdown: Cleanup if needed
+    pass
 
-@app.post("/predict", response_model=PredictionResponse) # Define the main endpoint for fraud analysis via "POST"
-def predict_fraud(txn: TransactionRequest): # Function that accepts a validated TransactionRequest JSON object
-    try: # Start error handling to catch and report server-side issues
-        # Generate a new unique transaction ID if one isn't provided by the calling system
+
+# Initialize FastAPI with lifespan
+app = FastAPI(
+    title="UPI Fraud Detection API",
+    description="Real-time hybrid AI scoring engine for UPI transactions",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def health_check():
+    """
+    Health check endpoint.
+    
+    Returns:
+        dict: Status and system name
+        
+    Example:
+        GET /
+        Response: {"status": "online", "system": "UPI Fraud Shield"}
+    """
+    return {"status": "online", "system": "UPI Fraud Shield"}
+
+
+@app.post("/predict", response_model=PredictionResponse)
+def predict_fraud(txn: TransactionRequest):
+    """
+    Fraud detection prediction endpoint.
+    
+    Analyzes a transaction and returns risk score, verdict, and factors.
+    
+    Args:
+        txn (TransactionRequest): Transaction details including:
+            - SenderUPI, ReceiverUPI
+            - Amount
+            - DeviceID
+            - Latitude, Longitude
+            - Hour, DayOfWeek, DayOfMonth
+            - TimeDiff, AmountDiff
+    
+    Returns:
+        PredictionResponse: Contains:
+            - transaction_id (str): Unique ID for the request
+            - risk_score (float): Fraud probability (0-1)
+            - verdict (str): ALLOW, FLAG, or BLOCK
+            - factors (dict): Top risk factors from SHAP analysis
+    
+    Raises:
+        HTTPException: 500 if prediction fails
+        
+    Example:
+        POST /predict
+        {
+            "SenderUPI": "user@upi",
+            "ReceiverUPI": "shop@upi",
+            "Amount": 500.0,
+            "DeviceID": "device123",
+            "Latitude": 12.97,
+            "Longitude": 77.59,
+            "Hour": 14
+        }
+    """
+    try:
         txn_id = str(uuid.uuid4())
-        
-        # Convert the Pydantic data model into a standard Python dictionary for the AI service
         data = txn.model_dump()
-        
-        # Pass the dictionary to our AI brain (the service) to get the risk score and verdict
         result = service.predict(data)
         
-        return { # Construct and return the final JSON response to the client
-            "transaction_id": txn_id, # The unique ID for this request
-            "risk_score": result['risk_score'], # The calculated fraud probability (0 to 1)
-            "verdict": result['verdict'], # The final decision: BLOCK, FLAG, or ALLOW
-            "factors": result['factors'] # The top reasons behind the score (from SHAP)
+        return {
+            "transaction_id": txn_id,
+            "risk_score": result['risk_score'],
+            "verdict": result['verdict'],
+            "factors": result['factors']
         }
-        
-    except Exception as e: # Catch any errors that occur during processing (e.g., model failure)
-        raise HTTPException(status_code=500, detail=str(e)) # Return a 500 error code with the error details
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__": # Entry point for running the script directly via 'python api.py'
-    # Start the web server on all network interfaces (0.0.0.0) at port 8000
+
+if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -27,6 +27,7 @@ class TestAPIEndpoints(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test client."""
+        # Use TestClient with lifespan context manager
         cls.client = TestClient(app)
     
     def test_health_check(self):

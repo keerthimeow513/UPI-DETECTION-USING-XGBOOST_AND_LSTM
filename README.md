@@ -83,11 +83,26 @@ UPI_FRAUD_DETECTION/
 
 ### 1. Start the API Server
 
+**Linux/Mac:**
 ```bash
 uvicorn 04_inference.api:app --reload
 ```
 
+**Windows (PowerShell):**
+```powershell
+cd 04_inference
+python -m uvicorn api:app --reload
+```
+
+**Windows (Command Prompt):**
+```cmd
+cd 04_inference
+python -m uvicorn api:app --reload
+```
+
 The API will be available at `http://localhost:8000`
+
+**Note for Windows users:** If you encounter lifespan context errors, ensure you're running from inside the `04_inference` directory and using `python -m uvicorn` instead of just `uvicorn`.
 
 ### 2. Launch the Dashboard
 
