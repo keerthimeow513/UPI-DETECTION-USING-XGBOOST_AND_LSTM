@@ -10,7 +10,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Input # Import specifi
 from tensorflow.keras.optimizers import Adam # Import Adam optimizer for efficient gradient descent
 import xgboost as xgb # Import XGBoost for training gradient boosted decision trees
 from sklearn.model_selection import train_test_split # Import tool to split data into training and testing sets
-from sklearn.metrics import classification_report, roc_auc_score, accuracy_score, precision_score, recall_score, f1_score # Import evaluation metrics
+from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score # Import evaluation metrics
 import joblib # Import joblib for saving non-Keras models like XGBoost
 import yaml # Import yaml for reading configuration files
 import json # Import json for saving performance metrics in a readable format

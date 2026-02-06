@@ -1,7 +1,6 @@
 import requests # Import the requests library to make HTTP calls to our Fraud Detection API
 import json # Import json to handle data formatting
 import time # Import time to simulate network delays and measure latency
-import random # Import random for potentially generating dummy data
 
 # Configuration: The URL where our FastAPI Fraud Detection server is running
 API_URL = "http://localhost:8000/predict"

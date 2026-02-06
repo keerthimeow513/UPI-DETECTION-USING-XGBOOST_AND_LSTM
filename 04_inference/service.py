@@ -8,7 +8,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 import tensorflow as tf # Import TensorFlow for running the deep learning LSTM model
-import xgboost as xgb # Import XGBoost for running the gradient boosting tree model
 import joblib # Import joblib for loading serialized model files (.pkl)
 import numpy as np # Import numpy for matrix and array operations
 import yaml # Import yaml for reading the configuration file
@@ -73,18 +72,24 @@ class FraudDetectionService: # Define the main service class that orchestrates f
         # AI models sometimes miss "Account Takeover" if the transaction looks normal otherwise.
         # We apply a context-aware rule for unknown devices and suspicious patterns.
         
-        KNOWN_SAFE_DEVICE = "82:4e:8e:2a:9e:28" # Mock registered device for the test user
+        # Load security settings from config
+        known_safe_devices = self.config.get('security', {}).get('known_safe_devices', [])
+        risk_thresholds = self.config.get('security', {}).get('risk_thresholds', {'block': 0.8, 'flag': 0.5})
+        amount_thresholds = self.config.get('security', {}).get('amount_thresholds', {'high': 10000, 'critical': 50000})
+        unusual_hours = self.config.get('security', {}).get('unusual_hours', {'start': 0, 'end': 5})
+        
         input_device = transaction_data.get("DeviceID", "") # Get the device ID from the input
         amount = transaction_data.get("Amount", 0) # Get the transaction amount
         hour = transaction_data.get("Hour", 12) # Get the hour of transaction
         
         # Rule 1: Unknown Device Check
-        if input_device != KNOWN_SAFE_DEVICE: # If the device doesn't match the user's registered hardware...
+        is_known_device = input_device in known_safe_devices
+        if not is_known_device: # If the device doesn't match the user's registered hardware...
             logger.warning(f"Domain Rule Triggered: Unknown Device {input_device}") # Log the anomaly
             
             # Context-Aware Decision for Unknown Device:
             # 1. If it is an unknown device AND (high amount OR AI is suspicious), we BLOCK (Score 0.95).
-            if final_score > 0.4 or amount > 10000:
+            if final_score > 0.4 or amount > amount_thresholds.get('high', 10000):
                 final_score = max(final_score, 0.95)
                 sorted_factors["Unknown Device + High Risk"] = 0.50
             else:
@@ -93,16 +98,16 @@ class FraudDetectionService: # Define the main service class that orchestrates f
                 sorted_factors["New Device (OTP Required)"] = 0.30
         
         # Rule 2: Unusual Hour + High Amount Check (Even for Safe Device)
-        elif amount > 10000 and (hour < 5 or hour > 23):
+        elif amount > amount_thresholds.get('high', 10000) and (hour < unusual_hours.get('end', 5) or hour > 23):
             logger.warning(f"Domain Rule Triggered: High Amount at Unusual Hour")
             final_score = max(final_score, 0.6) # FLAG for OTP
             sorted_factors["Unusual Hour + High Amount"] = 0.40
             
         # 5. Determine the Verdict based on the final risk score
         verdict = "ALLOW" # Default action: Let the transaction through
-        if final_score > 0.8: # If risk is very high...
+        if final_score > risk_thresholds.get('block', 0.8): # If risk is very high...
             verdict = "BLOCK" # Hard block the transaction
-        elif final_score > 0.5: # If risk is medium...
+        elif final_score > risk_thresholds.get('flag', 0.5): # If risk is medium...
             verdict = "FLAG" # Flag for manual verification or OTP challenge
             
         return { # Return the comprehensive results dictionary

@@ -55,7 +55,7 @@ def predict_fraud(txn: TransactionRequest): # Function that accepts a validated 
         txn_id = str(uuid.uuid4())
         
         # Convert the Pydantic data model into a standard Python dictionary for the AI service
-        data = txn.dict()
+        data = txn.model_dump()
         
         # Pass the dictionary to our AI brain (the service) to get the risk score and verdict
         result = service.predict(data)

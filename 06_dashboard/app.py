@@ -12,8 +12,6 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import streamlit as st # Import Streamlit for building the web interface
 import pandas as pd # Import pandas for data manipulation and displaying tables
 import numpy as np # Import numpy for array and matrix operations
-import xgboost as xgb # Import XGBoost to load the tree-based model
-import tensorflow as tf # Import TensorFlow to load the deep learning LSTM model
 import shap # Import SHAP for generating explainability charts
 import joblib # Import joblib for loading serialized model files
 import matplotlib.pyplot as plt # Import Matplotlib for basic plotting

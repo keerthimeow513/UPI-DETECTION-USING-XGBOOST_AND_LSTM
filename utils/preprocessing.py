@@ -1,124 +1,285 @@
-import pandas as pd # Import pandas for data manipulation and analysis in tabular form (DataFrames)
-import numpy as np # Import numpy for high-performance numerical operations on arrays
-from sklearn.preprocessing import MinMaxScaler, LabelEncoder # Import tools to normalize numbers and convert text labels to numbers
-import joblib # Import joblib to save and load serialized Python objects (like trained scalers)
-import yaml # Import yaml to read configuration files in a human-readable format
-import os # Import os for directory path handling and creation
-from .logger import setup_logger # Import our custom logging utility from the local package
+"""
+UPI Fraud Detection - Data Preprocessing Module
 
-logger = setup_logger() # Initialize the logger for this specific module
+This module provides data preprocessing and feature engineering capabilities
+for the UPI Fraud Detection system. It handles:
+- Feature engineering (temporal and lag features)
+- Categorical encoding using LabelEncoder
+- Numerical scaling using MinMaxScaler
+- Sequence creation for LSTM models
+- Artifact persistence for inference
 
-class Preprocessor: # Define the main class responsible for all data cleaning and transformation
-    def __init__(self, config_path="07_configs/config.yaml"): # Constructor to initialize the preprocessor with a config file
-        with open(config_path, 'r') as f: # Open the YAML configuration file in read mode
-            self.config = yaml.safe_load(f) # Parse the YAML content into a Python dictionary
+Example:
+    from utils.preprocessing import Preprocessor
+    
+    preprocessor = Preprocessor('07_configs/config.yaml')
+    df_processed = preprocessor.fit_transform(df_raw)
+    X_lstm, X_xgb, y = preprocessor.create_sequences(df_processed)
+"""
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler, LabelEncoder
+import joblib
+import yaml
+import os
+from .logger import setup_logger
+
+logger = setup_logger()
+
+
+class Preprocessor:
+    """
+    Main class for data preprocessing and feature engineering.
+    
+    This class handles the complete data preparation pipeline including:
+    - Feature extraction from timestamps
+    - Lag feature computation
+    - Categorical encoding
+    - Numerical scaling
+    - Sequence creation for deep learning models
+    
+    Attributes:
+        config (dict): Configuration parameters loaded from YAML file
+        scalers (dict): Dictionary of fitted scalers for numerical features
+        encoders (dict): Dictionary of fitted encoders for categorical features
+        feature_names (list): Ordered list of feature names
+    """
+    
+    def __init__(self, config_path="07_configs/config.yaml"):
+        """
+        Initialize the Preprocessor with configuration.
         
-        self.scalers = {} # Initialize an empty dictionary to store numerical scalers
-        self.encoders = {} # Initialize an empty dictionary to store categorical encoders
-        self.feature_names = [] # Initialize an empty list to keep track of final feature order
+        Args:
+            config_path (str): Path to the YAML configuration file.
+                             Defaults to "07_configs/config.yaml".
+        """
+        with open(config_path, 'r') as f:
+            self.config = yaml.safe_load(f)
         
-    def feature_engineering(self, df): # Method to create new predictive signals from raw transaction data
-        logger.info("Starting feature engineering...") # Log the start of the feature creation process
-        df['Timestamp'] = pd.to_datetime(df['Timestamp']) # Convert the 'Timestamp' string column into actual datetime objects
+        self.scalers = {}
+        self.encoders = {}
+        self.feature_names = []
+    
+    def feature_engineering(self, df):
+        """
+        Create new predictive features from raw transaction data.
+        
+        Extracts temporal features (hour, day of week, day of month) and
+        computes lag features (time difference, amount difference) for each user.
+        
+        Args:
+            df (pd.DataFrame): Raw transaction data with Timestamp, Amount,
+                              SenderUPI, and other columns.
+        
+        Returns:
+            pd.DataFrame: DataFrame with engineered features added.
+        
+        Example:
+            >>> df_raw = pd.read_csv('transactions.csv')
+            >>> df_processed = preprocessor.feature_engineering(df_raw)
+            >>> print(df_processed.columns)
+            Index(['Timestamp', 'Amount', 'Hour', 'DayOfWeek', 'DayOfMonth',
+                   'TimeDiff', 'AmountDiff', ...])
+        """
+        logger.info("Starting feature engineering...")
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
         
         # Temporal Features
-        df['Hour'] = df['Timestamp'].dt.hour # Extract the hour of the day (0-23) as a new feature
-        df['DayOfWeek'] = df['Timestamp'].dt.dayofweek # Extract the day of the week (0=Mon, 6=Sun) as a new feature
-        df['DayOfMonth'] = df['Timestamp'].dt.day # Extract the specific day of the month as a new feature
+        df['Hour'] = df['Timestamp'].dt.hour
+        df['DayOfWeek'] = df['Timestamp'].dt.dayofweek
+        df['DayOfMonth'] = df['Timestamp'].dt.day
         
         # Sorting
-        df = df.sort_values(by=['SenderUPI', 'Timestamp']) # Sort data by user and time to ensure sequential analysis is correct
+        df = df.sort_values(by=['SenderUPI', 'Timestamp'])
         
         # Lag Features
-        df['TimeDiff'] = df.groupby('SenderUPI')['Timestamp'].diff().dt.total_seconds().fillna(0) # Calculate seconds passed since user's last transaction
-        df['AmountDiff'] = df.groupby('SenderUPI')['Amount'].diff().fillna(0) # Calculate the change in amount compared to the user's last transaction
+        df['TimeDiff'] = df.groupby('SenderUPI')['Timestamp'].diff().dt.total_seconds().fillna(0)
+        df['AmountDiff'] = df.groupby('SenderUPI')['Amount'].diff().fillna(0)
         
-        return df # Return the enriched DataFrame with new features
+        return df
+    
+    def fit_transform(self, df):
+        """
+        Fit preprocessing pipeline and transform data.
         
-    def fit_transform(self, df): # Method to learn data distributions and transform the dataset for training
-        logger.info("Fitting and transforming data...") # Log the start of the scaling and encoding process
-        df = self.feature_engineering(df) # First, run feature engineering to add temporal/lag columns
+        This method learns the data distributions (for scaling and encoding)
+        and transforms the entire dataset. It should be called on training data.
+        
+        Args:
+            df (pd.DataFrame): Raw training data.
+        
+        Returns:
+            pd.DataFrame: Fully processed DataFrame with all features encoded and scaled.
+        
+        Example:
+            >>> preprocessor = Preprocessor()
+            >>> df_train = pd.read_csv('train.csv')
+            >>> df_processed = preprocessor.fit_transform(df_train)
+            >>> preprocessor.save_artifacts()  # Save for inference
+        """
+        logger.info("Fitting and transforming data...")
+        df = self.feature_engineering(df)
         
         # Categorical
-        for col in self.config['features']['categorical']: # Loop through each categorical column defined in the config
-            le = LabelEncoder() # Initialize a new label encoder for this specific column
-            df[col] = le.fit_transform(df[col].astype(str)) # Convert text to numbers and store the mapping logic
-            self.encoders[col] = le # Save the encoder instance to reuse during live inference
-            
-        # Numerical
-        num_cols = self.config['features']['numerical'] # Retrieve the list of numerical columns from config
-        scaler = MinMaxScaler() # Initialize a scaler to shrink values between 0 and 1 (crucial for LSTMs)
-        df[num_cols] = scaler.fit_transform(df[num_cols]) # Calculate min/max and scale the numerical data
-        self.scalers['scaler'] = scaler # Save the scaler instance to reuse during live inference
+        for col in self.config['features']['categorical']:
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col].astype(str))
+            self.encoders[col] = le
         
-        self.feature_names = num_cols + self.config['features']['categorical'] # Define the final ordered list of feature names
+        # Numerical
+        num_cols = self.config['features']['numerical']
+        scaler = MinMaxScaler()
+        df[num_cols] = scaler.fit_transform(df[num_cols])
+        self.scalers['scaler'] = scaler
+        
+        self.feature_names = num_cols + self.config['features']['categorical']
         
         # Save artifacts
-        self.save_artifacts() # Export the encoders/scalers to disk so the API can load them later
-        return df # Return the fully processed and numerical DataFrame
+        self.save_artifacts()
+        return df
+    
+    def transform_single(self, data_dict):
+        """
+        Transform a single transaction dictionary for real-time inference.
         
-    def transform_single(self, data_dict): # Method to transform a single live transaction for real-time prediction
-        """Transform a single dictionary input for inference"""
+        This method is optimized for real-time predictions where only one
+        transaction needs to be processed at a time.
+        
+        Args:
+            data_dict (dict): Dictionary containing transaction features.
+                Required keys match the config features (numerical + categorical).
+        
+        Returns:
+            np.ndarray: Flattened array of encoded and scaled features.
+        
+        Raises:
+            ValueError: If required features are missing from data_dict.
+        
+        Example:
+            >>> transaction = {
+            ...     "SenderUPI": "user@upi",
+            ...     "ReceiverUPI": "shop@upi",
+            ...     "Amount": 500.0,
+            ...     "DeviceID": "device1",
+            ...     "Latitude": 12.97,
+            ...     "Longitude": 77.59,
+            ...     "Hour": 14,
+            ...     "DayOfWeek": 1,
+            ...     "DayOfMonth": 15,
+            ...     "TimeDiff": 0,
+            ...     "AmountDiff": 0
+            ... }
+            >>> features = preprocessor.transform_single(transaction)
+            >>> print(features.shape)
+            (10,)
+        """
         # Load artifacts if not in memory
-        if not self.encoders: # If encoders haven't been loaded into memory yet...
-            self.load_artifacts() # ...load them from the saved .pkl files
-            
+        if not self.encoders:
+            self.load_artifacts()
+        
         # 1. Encode Categorical
-        cat_features = [] # Initialize list for processed categorical values
-        for col in self.config['features']['categorical']: # Loop through each required categorical field
-            val = str(data_dict.get(col, '')) # Safely get the value from input dictionary or empty string
-            try: # Use a try block to handle cases where a user might have a new, unseen ID
+        cat_features = []
+        for col in self.config['features']['categorical']:
+            val = str(data_dict.get(col, ''))
+            try:
                 # Handle unseen labels carefully
-                encoded_val = self.encoders[col].transform([val])[0] # Transform the single value using the fitted encoder
-            except: # If the label was never seen during training...
-                encoded_val = 0 # ...default to 0 to prevent the system from crashing
-            cat_features.append(encoded_val) # Add the numerical version of the category to our list
-            
+                encoded_val = self.encoders[col].transform([val])[0]
+            except (KeyError, ValueError):
+                logger.warning(f"Unseen label '{val}' in column '{col}', defaulting to 0")
+                encoded_val = 0
+            cat_features.append(encoded_val)
+        
         # 2. Scale Numerical
         # Note: In real-time, diff features (TimeDiff, AmountDiff) need history.
         # For this demo, we assume they are provided or default to 0.
-        num_vals = [data_dict.get(col, 0) for col in self.config['features']['numerical']] # Gather numerical inputs in correct order
-        num_scaled = self.scalers['scaler'].transform([num_vals])[0] # Scale the numerical inputs using the saved scaler
+        num_vals = [data_dict.get(col, 0) for col in self.config['features']['numerical']]
+        num_scaled = self.scalers['scaler'].transform([num_vals])[0]
         
-        return np.concatenate([num_scaled, cat_features]) # Merge numerical and categorical lists into a single flat array
-
-    def create_sequences(self, df, lookback=None): # Method to restructure data into 3D shapes for LSTM (Sequences of transactions)
-        if lookback is None: # If no custom lookback is provided...
-            lookback = self.config['data']['lookback'] # ...use the value from the config file (e.g., last 10 txns)
+        return np.concatenate([num_scaled, cat_features])
+    
+    def create_sequences(self, df, lookback=None):
+        """
+        Create sequential data for LSTM model training.
+        
+        Restructures the data into 3D arrays suitable for LSTM input by
+        grouping transactions by user and creating time windows.
+        
+        Args:
+            df (pd.DataFrame): Processed DataFrame with engineered features.
+            lookback (int, optional): Number of previous transactions to include
+                                     in each sequence. Defaults to config value.
+        
+        Returns:
+            tuple: Three numpy arrays (X_lstm, X_xgb, y)
+                - X_lstm: 3D array [samples, lookback, features] for LSTM
+                - X_xgb: 2D array [samples, features] for XGBoost
+                - y: 1D array [samples] of fraud labels
+        
+        Example:
+            >>> df_processed = preprocessor.fit_transform(df_raw)
+            >>> X_lstm, X_xgb, y = preprocessor.create_sequences(df_processed, lookback=10)
+            >>> print(X_lstm.shape, X_xgb.shape, y.shape)
+            (15000, 10, 10) (15000, 10) (15000,)
+        """
+        if lookback is None:
+            lookback = self.config['data']['lookback']
+        
+        logger.info(f"Creating sequences with lookback {lookback}...")
+        
+        X_lstm = []
+        X_xgb = []
+        y = []
+        
+        feature_cols = self.feature_names
+        
+        grouped = df.groupby('SenderUPI')
+        
+        for _, group in grouped:
+            data = group[feature_cols].values
+            target = group['IsFraud'].values
             
-        logger.info(f"Creating sequences with lookback {lookback}...") # Log the sequence creation parameters
-        
-        X_lstm = [] # List to hold the 3D sequence data for LSTM
-        X_xgb = [] # List to hold the 1D current transaction data for XGBoost
-        y = [] # List to hold the target labels (Fraud or Not)
-        
-        feature_cols = self.feature_names # Use the previously determined feature list
-        
-        grouped = df.groupby('SenderUPI') # Group transactions by user to ensure sequences don't mix different people
-        
-        for _, group in grouped: # Iterate through each user's transaction history
-            data = group[feature_cols].values # Convert the user's features into a raw numpy matrix
-            target = group['IsFraud'].values # Get the corresponding fraud labels for that user
+            if len(data) < lookback:
+                continue
             
-            if len(data) < lookback: # If the user has fewer transactions than our lookback window...
-                continue # ...skip them as we can't form a full sequence
-                
-            for i in range(lookback, len(data)): # Slide a window across the user's history
-                X_lstm.append(data[i-lookback:i]) # Store the previous 'n' transactions as the sequence input
-                X_xgb.append(data[i]) # Store the current (most recent) transaction as the flat input
-                y.append(target[i]) # Store the fraud label of the current transaction
-                
-        return np.array(X_lstm), np.array(X_xgb), np.array(y) # Return processed data as optimized numpy arrays
-
-    def save_artifacts(self): # Method to export processing logic to files
-        os.makedirs(self.config['paths']['artifacts'], exist_ok=True) # Ensure the artifacts directory exists
-        joblib.dump(self.encoders, os.path.join(self.config['paths']['artifacts'], 'label_encoders.pkl')) # Save categorical mappings
-        joblib.dump(self.scalers['scaler'], os.path.join(self.config['paths']['artifacts'], 'scaler.pkl')) # Save numerical min/max values
-        joblib.dump(self.feature_names, os.path.join(self.config['paths']['artifacts'], 'feature_names.pkl')) # Save the exact feature order
-        logger.info("Artifacts saved.") # Log completion of export
-
-    def load_artifacts(self): # Method to import processing logic from files
-        path = self.config['paths']['artifacts'] # Get the directory where artifacts are stored
-        self.encoders = joblib.load(os.path.join(path, 'label_encoders.pkl')) # Reload the categorical mappings
-        self.scalers['scaler'] = joblib.load(os.path.join(path, 'scaler.pkl')) # Reload the numerical scaler
-        self.feature_names = joblib.load(os.path.join(path, 'feature_names.pkl')) # Reload the feature list
+            for i in range(lookback, len(data)):
+                X_lstm.append(data[i-lookback:i])
+                X_xgb.append(data[i])
+                y.append(target[i])
+        
+        return np.array(X_lstm), np.array(X_xgb), np.array(y)
+    
+    def save_artifacts(self):
+        """
+        Save fitted preprocessing artifacts to disk.
+        
+        Saves encoders, scalers, and feature names so they can be loaded
+        during inference to ensure consistent transformations.
+        
+        Example:
+            >>> preprocessor.fit_transform(df_train)
+            >>> preprocessor.save_artifacts()
+            # Artifacts saved to 02_models/artifacts/
+        """
+        os.makedirs(self.config['paths']['artifacts'], exist_ok=True)
+        joblib.dump(self.encoders, os.path.join(self.config['paths']['artifacts'], 'label_encoders.pkl'))
+        joblib.dump(self.scalers['scaler'], os.path.join(self.config['paths']['artifacts'], 'scaler.pkl'))
+        joblib.dump(self.feature_names, os.path.join(self.config['paths']['artifacts'], 'feature_names.pkl'))
+        logger.info("Artifacts saved.")
+    
+    def load_artifacts(self):
+        """
+        Load fitted preprocessing artifacts from disk.
+        
+        Loads previously saved encoders, scalers, and feature names for use
+        during inference.
+        
+        Example:
+            >>> preprocessor = Preprocessor()
+            >>> preprocessor.load_artifacts()
+            >>> features = preprocessor.transform_single(transaction)
+        """
+        path = self.config['paths']['artifacts']
+        self.encoders = joblib.load(os.path.join(path, 'label_encoders.pkl'))
+        self.scalers['scaler'] = joblib.load(os.path.join(path, 'scaler.pkl'))
+        self.feature_names = joblib.load(os.path.join(path, 'feature_names.pkl'))
