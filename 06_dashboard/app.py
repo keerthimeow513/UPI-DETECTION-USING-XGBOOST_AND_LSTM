@@ -6,8 +6,19 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, '04_inference'))
 
+# FIXED: Use absolute paths
+config_path = os.path.join(project_root, '07_configs', 'config.yaml')
+data_path = os.path.join(project_root, '01_data', 'raw', 'upi_transactions.csv')
+
 # Disable GPU for inference to avoid conflicts and ensure it runs on standard CPU servers
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# Suppress TensorFlow oneDNN warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+# Suppress TF warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# Suppress Python warnings
+import warnings
+warnings.filterwarnings('ignore')
 
 import streamlit as st # Import Streamlit for building the web interface
 import pandas as pd # Import pandas for data manipulation and displaying tables
@@ -34,7 +45,7 @@ if 'history' not in st.session_state:
     st.session_state['history'] = []
 
 # Load Configuration from the YAML file
-with open('07_configs/config.yaml', 'r') as f: # Open the file in read mode
+with open(config_path, 'r') as f: # Use absolute path
     config = yaml.safe_load(f) # Convert YAML content to a Python dictionary
 
 # Load AI Assets and cache them to prevent reloading on every user click
@@ -63,7 +74,7 @@ if menu == "Dashboard": # Logic for the main data overview page
     st.title("User Transaction Dashboard") # Page heading
     
     # Load raw data for display on the dashboard
-    df_raw = pd.read_csv('01_data/raw/upi_transactions.csv') # Read the transaction CSV
+    df_raw = pd.read_csv(data_path) # Read the transaction CSV using absolute path
     df_raw['Timestamp'] = pd.to_datetime(df_raw['Timestamp']) # Convert timestamp strings to datetime objects
     
     # Combine CSV data with session history (Live updates)
