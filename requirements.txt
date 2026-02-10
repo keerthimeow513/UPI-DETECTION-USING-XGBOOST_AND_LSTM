@@ -27,7 +27,7 @@ python-dotenv==1.0.0  # Environment variables
 pyyaml>=6.0.2
 
 # Caching & Storage
-redis==5.0.1  # User history storage
+redis==7.1.1  # User history storage
 
 # Dashboard
 streamlit>=1.40.0
