@@ -1,15 +1,19 @@
 import requests # Import the requests library to make HTTP calls to our Fraud Detection API
 import json # Import json to handle data formatting
 import time # Import time to simulate network delays and measure latency
+import os # Import os to access environment variables
+from urllib.parse import urljoin
 
-# Configuration: The URL where our FastAPI Fraud Detection server is running
-API_URL = "http://localhost:8000/predict"
+# Configuration: Load API URL from environment variable or use default
+API_BASE_URL = os.getenv('API_URL', 'http://localhost:8000')
+API_URL = urljoin(API_BASE_URL.rstrip('/') + '/', 'predict')
 
 def main(): # The main entry point for our simulation app
     print("="*50) # UI separator
     print("      MOCK UPI PAYMENT APP (DEMO)      ") # App title
     print("="*50) # UI separator
     print("Simulating integration with AI Fraud Detection System...\n") # Context message
+    print(f"Connected to: {API_BASE_URL}\n") # Show which API server we're using
 
     # Simulate a logged-in user (hardcoded for demonstration purposes)
     user_upi = "neelimabutala513@upi" # A sample user from our training dataset

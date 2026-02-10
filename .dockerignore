@@ -1,0 +1,123 @@
+# Dockerignore file for UPI Fraud Detection System
+# Excludes files that shouldn't be included in Docker build context
+# This reduces build time and image size
+
+# ============================================================================
+# PYTHON - Bytecode and cache
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ============================================================================
+# TESTING - Coverage and test artifacts
+# ============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# ============================================================================
+# GIT - Version control
+# ============================================================================
+.git/
+.gitignore
+.gitattributes
+
+# ============================================================================
+# ENVIRONMENT - Configuration files with secrets
+# ============================================================================
+.env
+.env.local
+.env.*.local
+.env.example
+!.env.example  # Keep example for reference
+
+# ============================================================================
+# LOGS - Runtime logs
+# ============================================================================
+*.log
+logs/
+*.log.*
+
+# ============================================================================
+# IDE - Editor and IDE files
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# ============================================================================
+# JUPYTER - Notebook checkpoints and outputs
+# ============================================================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+06_notebooks/.ipynb_checkpoints/
+06_notebooks/02_models/  # Exclude if notebooks create model copies
+
+# ============================================================================
+# DOCUMENTATION - Build artifacts
+# ============================================================================
+docs/_build/
+site/
+*.md
+!README.md  # Keep main README
+
+# ============================================================================
+# DOCKER - Docker-related files (not needed in context)
+# ============================================================================
+Dockerfile*
+docker-compose*.yml
+.docker/
+.dockerignore
+
+# ============================================================================
+# TEMPORARY - Build and temporary files
+# ============================================================================
+.tmp/
+temp/
+tmp/
+*.tmp
+
+# ============================================================================
+# DATA - Large data files (mount as volumes instead)
+# ============================================================================
+# Note: Model artifacts are mounted as volumes, but we'll include them
+# in the copy for standalone builds
+# 02_models/artifacts/*
+# 01_data/raw/*.csv
+
+# ============================================================================
+# MISC - Other unnecessary files
+# ============================================================================
+*.bak
+*.backup
+*.old
+scripts/*.sh  # Entrypoint scripts should be included
+!scripts/docker-entrypoint.sh  # Keep the entrypoint script

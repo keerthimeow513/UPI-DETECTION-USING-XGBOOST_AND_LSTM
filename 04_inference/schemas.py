@@ -1,18 +1,36 @@
-from pydantic import BaseModel # Import BaseModel from Pydantic to enable automatic data validation and JSON parsing
-from typing import Optional # Import Optional for fields that are allowed to be null or missing
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+import re
 
-class TransactionRequest(BaseModel): # Define the expected data structure for an incoming payment request
-    SenderUPI: str # The unique UPI ID of the person sending money (e.g., 'user@bank')
-    ReceiverUPI: str # The unique UPI ID of the person or merchant receiving money
-    Amount: float # The monetary value of the transaction in decimal format
-    DeviceID: str # The hardware MAC address or unique identifier of the mobile device being used
-    Latitude: float # The GPS latitude coordinate of the device at the time of payment
-    Longitude: float # The GPS longitude coordinate of the device at the time of payment
-    # The timestamp is optional because the server can generate it if the app doesn't provide one
-    Timestamp: Optional[str] = None 
+class TransactionRequest(BaseModel):
+    SenderUPI: str = Field(..., min_length=3, max_length=100, description="Sender UPI ID")
+    ReceiverUPI: str = Field(..., min_length=3, max_length=100, description="Receiver UPI ID")
+    Amount: float = Field(..., ge=0, le=10000000, description="Transaction amount in INR")
+    DeviceID: str = Field(..., min_length=1, max_length=100, description="Device identifier")
+    Latitude: float = Field(..., ge=-90, le=90, description="GPS latitude")
+    Longitude: float = Field(..., ge=-180, le=180, description="GPS longitude")
+    Timestamp: Optional[str] = Field(None, description="Transaction timestamp (ISO format)")
+    
+    @field_validator('SenderUPI', 'ReceiverUPI')
+    @classmethod
+    def validate_upi(cls, v: str) -> str:
+        if '@' not in v:
+            raise ValueError('UPI ID must contain @ symbol (e.g., user@upi)')
+        if not re.match(r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$', v):
+            raise ValueError('UPI ID format invalid')
+        return v
+    
+    @field_validator('Amount')
+    @classmethod
+    def validate_amount(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError('Amount must be greater than 0')
+        if v > 10000000:
+            raise ValueError('Amount cannot exceed 1 crore (10,000,000)')
+        return v
 
-class PredictionResponse(BaseModel): # Define the data structure that the API will return back to the user
-    transaction_id: str # A unique tracking ID for this specific prediction request
-    risk_score: float # The calculated probability of fraud ranging from 0.0 (Safe) to 1.0 (Certain Fraud)
-    verdict: str  # The final recommendation: "BLOCK" (Fraud), "FLAG" (Suspected), or "ALLOW" (Safe)
-    factors: dict # A dictionary containing the top reasons/features that contributed to the score (SHAP values)
+class PredictionResponse(BaseModel):
+    transaction_id: str = Field(..., description="Unique transaction identifier")
+    risk_score: float = Field(..., ge=0, le=1, description="Fraud probability (0-1)")
+    verdict: str = Field(..., pattern="^(ALLOW|FLAG|BLOCK)$", description="Final decision")
+    factors: dict = Field(..., description="Risk factors from SHAP analysis")

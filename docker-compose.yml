@@ -1,0 +1,121 @@
+# Docker Compose configuration for UPI Fraud Detection System
+# Defines multi-service architecture with API, Dashboard, and Redis
+
+services:
+  # ============================================================================
+  # API SERVICE - FastAPI Fraud Detection Backend
+  # ============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraudshield-api
+    ports:
+      - "8000:8000"  # Expose API on host port 8000
+    environment:
+      # Environment configuration
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      
+      # Redis connection string for feature store
+      - REDIS_URL=redis://redis:6379/0
+      
+      # API server settings
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      
+      # CORS settings for frontend access
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8501
+      
+      # Feature store toggle
+      - FEATURE_STORE_ENABLED=true
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount model artifacts as read-only for security
+      - ./02_models/artifacts:/app/02_models/artifacts:ro
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - fraudshield-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================================================
+  # REDIS SERVICE - Feature Store and Caching
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: fraudshield-redis
+    ports:
+      - "6379:6379"  # Expose Redis on host port 6379
+    volumes:
+      # Persistent storage for Redis data
+      - redis-data:/data
+      # Custom Redis configuration (optional)
+      - ./07_configs/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+    restart: unless-stopped
+    networks:
+      - fraudshield-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ============================================================================
+  # DASHBOARD SERVICE - Streamlit Frontend
+  # ============================================================================
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: fraudshield-dashboard
+    ports:
+      - "8501:8501"  # Expose Streamlit on host port 8501
+    environment:
+      # API endpoint URL for dashboard to connect to
+      - API_URL=http://api:8000
+      # Streamlit configuration
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      - STREAMLIT_THEME_BASE=dark
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      # Mount model artifacts for metrics display
+      - ./02_models/artifacts:/app/02_models/artifacts:ro
+    restart: unless-stopped
+    networks:
+      - fraudshield-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ============================================================================
+# VOLUMES - Persistent data storage
+# ============================================================================
+volumes:
+  redis-data:
+    driver: local
+
+# ============================================================================
+# NETWORKS - Isolated communication between services
+# ============================================================================
+networks:
+  fraudshield-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
