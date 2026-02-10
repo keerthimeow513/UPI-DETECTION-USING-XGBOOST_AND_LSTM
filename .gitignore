@@ -6,3 +6,6 @@ venv/
 .env
 pdf_content.txt
 project.log
+.tmp/
+06_notebooks/02_models/
+*.log
