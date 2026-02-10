@@ -47,7 +47,7 @@ requests>=2.32.0
 httpx==0.27.0
 
 # Utilities
-joblib==1.4.2
+joblib==1.5.3
 python-dateutil>=2.9.0
 
 # Testing
